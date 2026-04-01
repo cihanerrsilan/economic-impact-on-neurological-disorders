@@ -2,15 +2,15 @@
 
 A comprehensive data science project utilizing advanced statistical modeling and geospatial visualization in R to evaluate the relationship between a country's economic power (GDP per capita) and the diagnosed prevalence of neurological disorders.
 
-## 📊 Project Overview
+## Project Overview
 The core objective of this analysis is to investigate whether higher national income leads to increased diagnosis rates for different neurological conditions. 
 
-### 🔑 Key Findings
+### Key Findings
 * **The Wealth-Diagnosis Correlation:** Autism prevalence is heavily correlated with economic capacity. The data shows a distinct upward trend as GDP increases, strongly suggesting that richer nations have the resources (screening tools, specialists) required for widespread diagnosis.
 * **The ADHD Anomaly:** Unlike Autism, ADHD shows a global, somewhat economically independent trend, but with a massive, localized diagnostic boom in the Americas.
 * **Model Superiority:** Through rigorous Akaike Information Criterion (AIC) testing, the *Interaction Model* (combining GDP, Disease Type, and their interaction) drastically outperformed standard Linear and Quadratic models, proving that the economic impact behaves fundamentally differently depending on the specific disorder.
 
-## 🛠️ Methodology & Statistical Approach
+## Methodology & Statistical Approach
 Unlike simple correlation checks, this project utilized a structured econometric approach to validate findings:
 * **Data Merging:** Executed robust `left_join` operations aligning ISO3 country codes between World Bank and vector map datasets.
 * **Statistical Modeling:** Evaluated multiple functional forms:
@@ -22,7 +22,7 @@ Unlike simple correlation checks, this project utilized a structured econometric
 
 ---
 
-## 🚀 Technologies Used
+## Technologies Used
 * **Language:** `R`
 * **Framework:** `R Markdown` (for fully reproducible research and automated HTML reporting)
 * **Key Packages:** * `tidyverse` & `dplyr` (for data wrangling)
@@ -31,7 +31,7 @@ Unlike simple correlation checks, this project utilized a structured econometric
 
 ---
 
-## 📂 Repository Structure
+## Repository Structure
 ```text
 ├── Data/                 # Raw datasets (World Bank GDP & GHDx Prevalence)
 ├── Output/               # Final generated high-resolution plots (.png)
@@ -40,7 +40,7 @@ Unlike simple correlation checks, this project utilized a structured econometric
 ├── .gitignore            # Excludes R history, cache, and OS hidden files
 └── README.md             # Project documentation
 ```
-## 📚 Data Sources
+## Data Sources
 * [World Bank Open Data](https://data.worldbank.org/) (GDP & Demographics)
 * [Global Health Data Exchange (GHDx)](http://ghdx.healthdata.org/) (Disease Prevalence Rates)
 
