@@ -1,0 +1,945 @@
+---
+title: "The Visibility Gap: Economic Determinants of Neurodevelopmental Diagnosis (2019)"
+subtitle: "The Impact of Economic Prosperity on Autism and ADHD Prevalence"
+author: "Silan Cihaner"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true                
+    toc_float: true          
+    toc_depth: 3
+    number_sections: true    
+    theme: flatly          
+    code_folding: hide      
+    fig_caption: true
+---
+
+<style>
+/* 1. BODY TEXT SETTINGS */
+body, p, li {
+  text-align: justify;  
+  font-family: "Helvetica", sans-serif;
+  font-size: 16px;      
+  line-height: 1.6;   
+}
+
+/* 3. CENTER TABLES AND IMAGES */
+table, img {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* 4. BLUE AND YELLOW BOXES (Our Design + Justify) */
+.alert-info {
+  background-color: #e7f3fe;
+  border-left: 6px solid #2196F3;
+  padding: 15px;
+  margin: 20px 0;
+  color: #0c5460;
+  border-radius: 5px;
+  text-align: justify; 
+}
+
+.alert-warning {
+  background-color: #fff3cd;
+  border-left: 6px solid #ffc107;
+  padding: 15px;
+  margin: 20px 0;
+  color: #856404;
+  border-radius: 5px;
+  text-align: justify;
+}
+</style>
+
+```{r setup, include=FALSE}
+# GLOBAL SETTINGS
+# Codes are hidden, warnings are off, plots are centered.
+knitr::opts_chunk$set(
+  echo = FALSE, 
+  message = FALSE, 
+  warning = FALSE, 
+  fig.width = 10, 
+  fig.height = 6, 
+  fig.align = "center"
+)
+
+# LIBRARIES
+library(readr)
+library(tidyverse)
+library(WDI)
+library(scales)
+library(ggsci)
+library(countrycode)
+library(plotly)
+library(viridis)
+library(sf)          
+library(rnaturalearth)    
+library(rnaturalearthdata)
+library(leaflet)
+library(shiny)
+library(plumber)
+library(knitr)
+library(kableExtra)
+library(broom)
+```
+
+# Abstract
+
+The primary objective of this project is to examine the relationship between countries' levels of economic development (GDP Per Capita) and the prevalence of neurodevelopmental conditions (Autism and ADHD) using data science methods.
+
+I performed a multilevel analysis (unit of analysis is country) with data combined from the databases of World Bank and Global Health Data Exchange (GHDx), which produces the Global Burden of Disorder (GBD) study. In an analysis in terms of reported neurodevelopmental conditions rate, a statistically significant relationship with log-linear form was found between economic income and reported condition rate. This indicates greater diagnostic intensity in high-income countries, rather than inherently higher prevalence of the condition. 
+
+# Introduction and Objective
+
+Genetic factors aside, social and environmental and economic factors shape the prevalence of neurodevelopmental conditions. The primary reason for this study is to determine the validity of the common premise that you will find published in the literature; <em>"Autism is more common in developed countries."</em>
+
+<div class="alert alert-info"> <strong>Methodological Note: Why a Cross-Sectional Design (2019 Only)?</strong>
+
+For this study , I deliberately chose a <strong>cross-sectional design</strong> rather than longitudinal design focusing on 2019 in this study. There were three main reasons for this decision: 
+<ul> <li><strong>Research focus:(Spatial vs. Temporal):</strong> The central research question examines the <em>structural relationship</em> between the economic capacity of countries and diagnosis rates at a given point in time, rather than their change over time. 
+</li> <li><strong>Statistical Independence:</strong> A simple linear regression framework requires that the observations are statistically independent, but this assumption is violated if multiple years for the same countries are included due to <em>serial autocorrelation</em>, resulting in spuriously high significance levels. By choosing a single year, I know that each observation is an independent data point. 
+</li> <li><strong>Data Stability:</strong> The year 2019 is the last year with a comprehensive and stable dataset before the systemic disruptions caused by the COVID-19 pandemic.</li> </ul> </div>
+
+# Data Preparation
+Data was extracted from two different sources and merged for the analysis:
+<ul> <li><strong>Economic Data:</strong> GDP per Capita data (Current US$) obtained from the World Bank.
+</li> <li><strong>Health Data:</strong> Autism and ADHD prevalence rates per 100,000 people from GHDx.</li> </ul>
+
+<strong>Data Cleaning Steps:</strong>
+<ul> <li><strong>Temporal Filtering:</strong> The dataset was strictly filtered to include only records from the year 2019 to avoid pandemic-related anomalies.
+</li> <li><strong>Geospatial Standardization:</strong> Strategy for Data Standardization The most significant hurdle to merging international datasets is the inconsistency in country names (e.g., "United States" vs. "USA" or "Turkiye" vs. "Turkey"). Combining data without linking on simple text names is dangerous and can lead to substantial loss. To avoid inconsistent mapping, we took a standardization measure: all country names in the neurology dataset were mapped to <em>the ISO 3166–1 alpha-3 codes</em> (e.g., TUR, USA, DEU) based on predefined strings matching using the R package <em>countrycode</em>. This facilitated a seamless merge with the GDP data set which also had these standard codes.
+</li> <li><strong>Data Merging:</strong> The neurological and economic datasets were joined using a left_join operation based on these standardized country codes.
+</li> <li><strong>Quality Control:</strong> Entries with missing GDP values (NA) were removed to ensure statistical robustness in the regression models.</li> </ul>
+
+```{r data_processing}
+# Reading the GDP dataset
+gdp_data <- read_csv("GDP_per_capita.csv")
+
+# Reading the neurological dataset
+neuro_data <- read_csv("neuro_data.csv")
+
+# PREPARING NEURO DATA (Only 2019 and Prevalence)
+neuro_2019 <- neuro_data %>%
+  filter(measure_name == "Prevalence") %>% 
+  mutate(Country_Code = countrycode(location_name, "country.name", "iso3c")) %>%
+  select(location_name, Country_Code, val, cause_name) %>% 
+  rename(Prevalence = val, Disorder = cause_name) 
+
+# PREPARING GDP DATA (Only 2019 Column)
+gdp_2019 <- gdp_data %>%
+  select(`Country Code`, `2019`) %>% 
+  rename(GDP = `2019`) %>%        
+  filter(!is.na(GDP))
+
+# MERGING (JOIN)
+analysis_table <- left_join(neuro_2019, gdp_2019, by = c("Country_Code" = "Country Code")) %>%
+  filter(!is.na(GDP)) %>%
+  mutate(Continent = countrycode(Country_Code, "iso3c", "continent")) %>%
+  filter(!is.na(Continent))
+
+# REPORTING TABLE
+result_table <- analysis_table %>%
+  arrange(desc(GDP)) %>% 
+  select(location_name, GDP, Prevalence)
+
+write_csv(result_table, "2019_Analysis_Results.csv")
+
+# To display the table in report format, we use kable instead of print(head) for visualisation purposes only.
+kable(head(result_table, 10), caption = "Table 1: Top 10 Countries by GDP (Cleaned Data)") %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover"), 
+    full_width = F, 
+    position = "center"
+  )
+```
+
+<div class="alert alert-info"> <strong>Data Manipulation and Analysis Methodology</strong>
+
+This project made use of basic functions from <em>dplyr</em> and <em>tidyr</em> for data manipulation and cleaning. I organized the analysis process to reduce the complexity of data as such and to limit the scope of the analysis only to what is absolutely necessary for answering the research question in a cross-sectional manner (2019).
+
+<ul> <li><strong>Method:</strong> Used <em>select</em> function to remove unnecessary variables into the data set and to filter only "Country Code, GDP and Prevalence" columns which are only needed for analysis The analysis was constrained to the measurement "Prevalence" and valid data points, thus subsets were created using the <em>filter</em> function. Additionally, the <em>left_join</em> command was used to join two different datasets in one analytical table by common country codes. The pipe (%>%) operator was used to enhance code readability and chain the processing steps together .
+
+</li> <li><strong>Methods Not Used and Justification:</strong>The project is a cross-sectional analysis for the year 2019, rather than a time-series analysis; therefore the data does not need to be reshaped. So, I did not have to use the <em>pivot_longer</em> function which is used for changing the data from wide format to long format as only 2019 column was selected to make the data tidier for analysis. Likewise, it was not essential the <em>group_by</em> and <em>summarise</em> functions that most of us use to group data and calculate summary statistics (i.e., means). However, there is just one year of information (one observation) per nation, and putting that together or averaging would be naively unimportant insights.</li> </ul> </div>
+
+## Preliminary Statistical Check
+
+Before proceeding to visualization, a simple Pearson correlation coefficient was calculated to check the linear relationship between raw GDP and Prevalence.
+```{r correlation_check, echo=TRUE}
+# Calculate global correlation
+correlation <- cor(analysis_table$GDP, analysis_table$Prevalence, use = "complete.obs")
+print(paste("2019 Global Correlation Coefficient (Raw Data):", round(correlation, 3)))
+```
+<div class="alert alert-warning"> <strong>Statistical Note: Why is the correlation so low (0.023)?</strong>
+
+The calibre coefficient of <strong>0.023</strong> reflects a near-zero linear correlation. But this is known and methodically crucial. This disintegrating distribution is driven by economics (GDP) often being exponential but prevalence rates are linear.
+
+A poor fit represented by this low score indicates that a <strong>simple linear model</strong> is not suitable, which provides us with a justification to <strong>log-transform the variables (Log-GDP)</strong> as done in the next section("Statistical Modeling") to more accurately reflect the true structural relationship.</div>
+
+# Visualization
+Visualization techniques were employed to understand the underlying structure of the data.
+
+## Continental Distribution Analysis
+
+My first hypothesis postulates that developed regions might report higher prevalence rates due to better diagnostic infrastructure. To test this, I visualized the distribution of Autism and ADHD prevalence across continents using a <strong>Box Plot</strong>.
+
+```{r boxplot, fig.cap="Figure 1: Neurological Disorder Prevalence by Continent (2019)"}
+# VISUALIZATION 1: BOX PLOT - BY CONTINENT AND DISEASE
+ggplot(analysis_table, aes(
+  x = reorder(Continent, Prevalence, FUN = median),
+  y = Prevalence,
+  fill = Continent
+)) +
+  geom_boxplot(
+    alpha = 0.8, 
+    outlier.shape = 21,  # Make outliers round
+    outlier.fill = "white",
+    outlier.size = 2
+  ) +
+  
+  # Flip the coordinates for better readability of continent names
+  coord_flip() +
+  
+  # SEPARATE PANELS FOR EACH DISEASE
+  facet_wrap(~Disorder, scales = "free_x") + 
+  
+  labs(
+    title = "", # Title is already in fig.cap
+    x = "", 
+    y = "Prevalence Rate (per 100,000 people)"
+  ) +
+  
+  theme_minimal() +
+  
+  # Remove the legend to avoid clutter
+  theme(
+    legend.position = "none",
+    panel.grid.minor = element_blank(),
+    strip.text = element_text(face = "bold", size = 11)
+  ) +
+  
+  # Professional color palette (Viridis Mako)
+  scale_fill_viridis_d(option = "mako")
+```
+<div class="alert alert-warning"> <strong>Interpretation of Figure 1:</strong>
+<ul> <li><strong>Geography Gap:</strong> The box plot illustrates a major gap by continent. ADHD and Autism are consistently higher, in terms of median prevalence, in the Americas and Europe than in Asia and Africa.
+</li> <li><strong>Variability:</strong> The distribution of data (interquartile range) is larger than in the Americas, demonstrating more heterogeneity in the diagnosis between the countries in this continent.
+</li> <li><strong>Outliers:</strong> Many outliers can be observed in Asia and Europe, which are countries with a high or low diagnosis rate compared to adjacent countries.</li> </ul> </div>
+
+## Economic Relationship Analysis (Scatter Plot)
+
+Following the regional analysis, I investigated the structural relationship between economic prosperity (GDP per Capita) and the prevalence of neurodevelopmental conditions. I applied a <strong>logarithmic scale (Log10)</strong> to the X-axis to address the extreme skewness in global income levels and visualize the data more effectively.
+
+The interactive scatter plot below allows for detailed inspection of individual country data.
+
+```{r scatter, fig.cap="Figure 2: Economic Power and Disorder Relationship (Interactive)", fig.width=8, fig.height=5, out.width="85%", fig.align="center"}
+# VISUALIZATION 2: INTERACTIVE SCATTER PLOT (GDP vs Prevalence)
+scatter_static <- ggplot(analysis_table, aes(x = GDP, y = Prevalence, color = Disorder)) +
+  
+  # Layer 1: Points (Added 'text' for interactivity)
+  geom_point(
+    aes(
+      text = paste0(
+        "Country: ", location_name,
+        "<br>Continent: ", Continent,
+        "<br>GDP Per Capita: $", round(GDP, 0),
+        "<br>Prevalence Rate: ", round(Prevalence, 2)
+      )
+    ),
+    alpha = 0.6,       # Transparency
+    size = 2,          # Point size
+    color = "steelblue" # Color
+  ) +
+  
+  # Layer 2: Regression Line (Trend)
+  geom_smooth(
+    method = "lm", 
+    color = "darkred", 
+    se = TRUE,      # Show confidence interval (shadow)
+    linetype = "dashed",
+    linewidth = 1
+  ) +
+  
+  # Axis Adjustment: Logarithmic (To balance rich-poor difference)
+  scale_x_log10(labels = scales::comma) +
+  facet_wrap(~Disorder, scales = "free_y") + # SEPARATING DISEASES!
+  
+  labs(
+    title = "Visibility Gap: Economic Power and Neurodevelopmental Conditions",
+    subtitle = "Relationship Between Economic Income and Neurodevelopmental Condition",
+    x = "GDP Per Capita (Logarithmic)",
+    y = "Neurodevelopmental Conditions Prevalence"
+  ) +
+  
+  theme_minimal() +
+  theme(panel.grid.minor = element_blank()) + # Hide minor grid lines, keep it clean
+scale_color_viridis_d(option = "turbo")
+
+interactive_plot <- scatter_static + 
+  geom_point(aes(text = paste0(
+    "Country: ", location_name,
+    "<br>Continent: ", Continent,
+    "<br>GDP: $", round(GDP, 0),
+    "<br>Prevalence: ", round(Prevalence, 2)
+  )), alpha = 0) 
+
+# Print the screen (for HTML output)
+ggplotly(interactive_plot, tooltip = "text")
+```
+<div class="alert alert-warning"> <strong>Interpretation of Figure 2:</strong>
+<ul> <li><strong>Positive Correlation:</strong> For Autism Spectrum Disorders (ASD) ihe red dashed line shows a clear upward trend. As a country’s wealth increases, so does its reported prevalence. This supports the “Visibility Gap” hypothesis: richer countries don't necessarily have more autism; they simply have better screening, more doctors, and the resources to find and record cases.
+</li> <li><strong>ADHD — Flatter/Mixed Negative Trend:</strong> AUnlike Autism, the trend for ADHD is much flatter. This suggests that ADHD diagnosis rates are more consistent across the globe, regardless of a country’s income. It implies that the tools used to identify ADHD might be more accessible or that awareness is more evenly spread.
+</li> <li><strong>Data Density:</strong> The majority of countries occupy the middle-income region ($1,000 - $10,000) where the diagnostic rates vary the most.</li> </ul> </div>
+
+## Detailed Regional Breakdown (Facet Grid Analysis)
+
+Global trends can sometimes mask regional differences. To investigate whether the relationship between GDP and neurodevelopmental conditions prevalence is consistent across the world, I split the analysis into panels using a <strong>Facet Grid</strong>.
+
+The plot below creates a matrix where <strong>rows represent neurodevelopmental condition</strong> and <strong>columns represent continents</strong>, allowing for a direct comparison of regression slopes.
+
+```{r facet_plot, fig.cap="Figure 3: Relationship by Continent and Disorder (Facet Grid)", fig.width=10, fig.height=7, out.width="100%", fig.align="center"}
+# VISUALIZATION 3: FACETTING (SPLITTING INTO PANELS)
+facet_plot <- ggplot(analysis_table, aes(x = GDP, y = Prevalence)) +
+  
+  # Base points
+  geom_point(alpha = 0.5, color = "darkblue", size = 1.5) +
+  
+  # Regression Line (Red)
+  geom_smooth(method = "lm", color = "red", se = FALSE, linewidth = 1) +
+  
+  # Logarithmic Scale for GDP
+  scale_x_log10(labels = scales::comma) +
+  
+  # MOST IMPORTANT PART: Rows are DISEASE, Columns are CONTINENT
+  facet_grid(Disorder ~ Continent, scales = "free_y") + 
+  
+  labs(
+    title = "", # Title handled by fig.cap
+    subtitle = "Red lines indicate the linear trend within each region",
+    x = "GDP Per Capita (Logarithmic)", 
+    y = "Prevalence Rate"
+  ) +
+  
+  theme_bw() +
+  
+  # Styling the panel headers
+  theme(
+    strip.text = element_text(size = 10, face = "bold"),
+    panel.grid.minor = element_blank()
+  )
+
+print(facet_plot)
+```
+<div class="alert alert-warning"> <strong>Interpretation of Figure 3:</strong>
+This region-facetted figure shows a remarkable degree of heterogeneity across regions:
+<ul> <li><strong>Europe & Asia:</strong> Both regions show a strong positive correlation for Autism and ADHD (shown by the steep upward red lines). This confirms that as these economies grow, their diagnostic capacity and reporting also increase.
+</li> <li><strong>Americas (Anomaly):</strong> Interestingly, ADHD shows a reverse trend in the Americas. This suggests that some lower-income countries in this region have high diagnosis rates, likely due to unique healthcare policies or cultural awareness that differs from the European model.
+</li> <li><strong>Africa:</strong> The trend lines here are mostly flat or slightly negative. This indicates that, economic growth is not the primary driver of diagnosis rates in these countries compared to other parts of the world.</li> </ul> </div>
+
+## Distribution Analysis (Histogram)
+
+Before finalizing our model selection, it is essential to examine the frequency distribution of the prevalence rates. This helps me identify skewness and understand the variance within each neurodevelopmental condition category.
+
+The histograms below display the density of countries at different prevalence levels.
+
+```{r hist_plot, fig.cap="Figure 4: Disorder Prevalence Distribution (Histogram)", fig.width=10, fig.height=5, out.width="100%", fig.align="center"}
+# VISUALIZATION 4: HISTOGRAM
+hist_plot <- ggplot(analysis_table, aes(x = Prevalence, fill = Disorder)) +
+  
+  # Histogram Layer with clear borders
+  geom_histogram(bins = 35, color = "black", alpha = 0.8) +
+  
+  # Split into panels by disease with independent scales
+  facet_wrap(~Disorder, scales = "free") + 
+  
+  # Styling
+  scale_fill_viridis_d(option = "turbo") +
+  
+  labs(
+    title = "", # Title handled by fig.cap
+    x = "Prevalence Rate (per 100,000)", 
+    y = "Number of Countries (Count)"
+  ) +
+  
+  theme_minimal() +
+  
+  theme(
+    legend.position = "none",
+    strip.text = element_text(face = "bold", size = 11),
+    panel.grid.minor = element_blank()
+  )
+
+print(hist_plot)
+```
+<div class="alert alert-warning"> <strong>Interpretation of Figure 4:</strong>
+<ul> <li><strong>Right-Skewed Distribution:</strong> I note that both distributions are right-tailed, in the sense that, while most countries tend to be shouldered at lower-to-middle levels of prevalence rates, there exists a long “tail” of such countries at very high levels. This departure from complete Normal (Gaussian) distribution also provides further support for our application of logarithmic transformations in regression models.
+
+</li> <li><strong>Variance Discrepancy:</strong>
+</li> <ul> <li><strong>ADHD (Left):</strong> Here everyone is distraced to a much higher degree (spread out so further apart, these cases are often over 2,500). This indicates disparate diagnostic criteria involving different nations.
+</li> <li><strong>Autism (Right):</strong> Appears to cluster more tightly with most of the autism cases being between 400 and 800 per 100,000.</li> </ul> </div>
+
+
+## Smoothed Distribution Analysis (Density Plot)
+
+To further analyze the shape of the data distributions without the "binning bias" of histograms, I employed a <strong>Density Plot</strong>. This visualization provides a smoothed estimate of the probability density function for prevalence rates.
+
+```{r dens_plot, fig.cap="Figure 5: Condition Density Curve (Smoothed Distribution)", fig.width=10, fig.height=5, out.width="100%", fig.align="center"}
+# VISUALIZATION 5: DENSITY PLOT
+dens_plot <- ggplot(analysis_table, aes(x = Prevalence, fill = Disorder)) +
+  
+  # Density layer with transparency and border
+  geom_density(alpha = 0.6, color = "black", size = 0.8) +
+  
+  # Split into panels
+  facet_wrap(~Disorder, scales = "free") +
+  
+  # Styling
+  scale_fill_viridis_d(option = "turbo") +
+  
+  labs(
+    title = "", # Title handled by fig.cap
+    x = "Prevalence Rate (per 100,000)", 
+    y = "Density (Probability)"
+  ) +
+  
+  theme_minimal() +
+  
+  theme(
+    legend.position = "none",
+    strip.text = element_text(face = "bold", size = 11),
+    panel.grid.minor = element_blank()
+  )
+
+print(dens_plot)
+```
+<div class="alert alert-warning"> <strong>Interpretation of Figure 5:</strong>
+<ul> <li> <strong>Autism:</strong> It has a Leptokurtic distribution, highly peaked with low dispersion. This indicates that most countries report similar prevalence rates that cluster tightly around the median. Statistically, this suggests a higher level of global consistency in how Autism is identified and recorded across different nations.
+
+</li> <li> <strong>ADHD:</strong> ADHD, on the other hand, has a Platykurtic distribution, spreads out along the platykurtic curve. This implies that there is much dispersion and absence of a worldwide consensus on diagnosis criteria. I am more likely to find a country with either very low or very high ADHD rate than you would for Autism.</li> </ul> </div>
+
+# Mapping
+Geography is a vital lens for understanding the prevalence of neurodevelopmental conditions. While statistical plots show me how the data behaves, mapping allows me to observe regional clusters and potential geopolitical influences that are otherwise difficult to detect. This section explores the spatial distribution of these conditions to see if proximity rather than just income, plays a role in diagnostic trends:
+
+<strong>Static Comparative Maps:</strong> To visualize the relative distribution of diagnosed neurodevelopmental conditions (ADHD vs. Autism) globally (Side by Side).
+
+<strong>Interactive Mapping:</strong> For granular exploration of country level data.
+
+## Data Merging Strategy for Mapping
+In order to see what I was finding up in the clouds on a map of the world, I had to join (“join”) my statistics with geographic shapes (including all countries from Morocco to Kazakhstan) as vectors.
+
+<strong>Demonstration of Data Joining:</strong>
+As mention in the assignment, I did a Left Join to map the country codes in my dataset with those of coordinates that is in world map.
+
+```{r data_joining, echo=TRUE, message=FALSE, warning=FALSE}
+# LOAD MAP DATA
+world_map <- ne_countries(scale = "medium", returnclass = "sf")
+
+# --- CRITICAL STEP: JOINING DATA SETS ---
+# We merge the map boundaries with our analysis table using ISO codes.
+# This fulfills the assignment requirement to "Join two data sets".
+map_data <- left_join(world_map, analysis_table, by = c("iso_a3" = "Country_Code"))
+
+print(paste("Data Merging Complete. Rows joined:", nrow(map_data)))
+```
+
+## Global Distribution (Static Map) 
+The distribution of the intensity of prevalence across the world is displayed in a choropleth map below. I segmented the analysis into 2 panels to compare geographic patterns across posts on ADHD versus Autism. 
+
+```{r map_plot, fig.cap="Figure 6: Global Distribution of Neurological Disorders (2019)", fig.width=12, fig.height=8, out.width="100%", fig.align="center"}
+# VISUALIZATION 6: WORLD MAP (SEPARATED BY DISEASE)
+# Loading map data boundaries
+world_map <- ne_countries(scale = "medium", returnclass = "sf")
+
+# Merging map data with our analysis table
+map_data <- left_join(world_map, analysis_table, by = c("iso_a3" = "Country_Code")) %>% 
+  filter(!is.na(Prevalence))
+
+# Drawing the Map
+map_plot <- ggplot(data = map_data) +
+  
+  # Map Layer
+  geom_sf(aes(fill = Prevalence), color = "white", size = 0.1) +
+  
+  # Split into two panels (Top: ADHD, Bottom: Autism)
+  facet_wrap(~Disorder, ncol = 1) + 
+  
+  # Color Palette (Magma: Dark colors indicate high prevalence)
+  scale_fill_viridis_c(option = "magma", direction = -1, name = "Prevalence\n(per 100k)") +
+  
+  labs(
+    title = "", # Title handled by fig.cap
+    subtitle = "Darker colors indicate higher reported prevalence rates"
+  ) +
+  
+  theme_void() + # Removes axes and grids for a clean <- map look
+  
+  theme(
+    legend.position = "right",
+    strip.text = element_text(face = "bold", size = 12),
+    plot.subtitle = element_text(size = 11, color = "gray40", hjust = 0.5)
+  )
+
+print(map_plot)
+
+# (Optional) Save the map automatically
+# ggsave("World_Neurology_Map.png", map_plot, width = 12, height = 6)
+```
+
+<div class="alert alert-warning"> <strong>Interpretation of Figure 6:</strong>
+<ul> <li><strong>The North-South Divide:</strong> The map makes a striking geopolitical point. The “Global North” (North America, Western Europe, Australia) is coloured in dark purple/black; these are the areas with high reported rates. In the opposite, there is the "Global South" (Africa and Southeast Asia) that's in light yellow/orange.
+</li> <li><strong>ADHD Intensity in the Americas:</strong> The top panel (ADHD) demonstrates strong signal dominance confined to North and South America. This visual evidence is consonant with our previous statistical observation of a particularly high rate of diagnosis in the Americas compared to the rest of the world.
+</li> <li><strong>Reporting Bias:</strong> The stark contrast suggests that neurological disorders are not biologically isolated to specific latitudes but are diagnostically isolated to regions with advanced healthcare systems.</li> </ul> </div>
+
+## Interactive Geospatial Exploration
+Static maps, however, tend to gloss country-level idiosyncrasies over. We addressed this with an Interactive Leaflet Map. The user could then interactively browse the dataset using this tool. When one hovers over areas, more detailed information regarding prevalence and neurodevelopmental condition classification can be obtained which would not be possible in a large static visualization. 
+
+```{r interactive_map, fig.cap="Figure 7: Interactive World Map (Hover for Details)", out.width="100%", fig.height=7, fig.align="center"}
+# INTERACTIVE WORLD MAP (Leaflet)
+
+# 1. Define Color Palette
+# Creates a yellow-to-red color scale based on prevalence values
+pal <- colorNumeric(palette = "YlOrRd", domain = map_data$Prevalence)
+
+# 2. Create the Map
+interactive_map <- leaflet(data = map_data) %>%
+  
+  # Add Base Map (OpenStreetMap style)
+  addTiles() %>%
+  
+  # Add Country Polygons
+  addPolygons(
+    fillColor = ~pal(Prevalence),
+    weight = 1,               
+    opacity = 1,
+    color = "white",          
+    dashArray = "3",
+    fillOpacity = 0.7,
+    
+    # Highlight Effect (When hovering mouse)
+    highlightOptions = highlightOptions(
+      weight = 3,
+      color = "#666",
+      dashArray = "",
+      fillOpacity = 0.7,
+      bringToFront = TRUE
+    ),
+    
+    # Popup/Label Information (HTML formatted)
+    label = ~paste0(
+      "<strong>Country: </strong>", admin, 
+      "<br><strong>Disorder: </strong>", Disorder,
+      "<br><strong>Prevalence: </strong>", round(Prevalence, 2)
+    ) %>% lapply(htmltools::HTML)
+  ) %>%
+  
+  # Add Legend to bottom right
+  addLegend(pal = pal, values = ~Prevalence, opacity = 0.7, title = "Prevalence Rate",
+            position = "bottomright")
+
+# 3. Display Map
+interactive_map
+```
+<div class="alert alert-warning"> <strong>Features of Figure 6:</strong>
+<ul> <li><strong>Granularity:</strong> In contrast to the static map, by hovering over each of the countries in this interactive visualization it is possible to scrutinize specific values for any individual country contained within the dataset.
+</li> <li><strong>Pattern Confirmation:</strong> Users can zoom in on any area (e.g., The Middle East or Central Europe) to confirm local high and low prevalence clusters.
+</li> <li><strong>Data Transparent:</strong> By having hover-over tooltips available for instant access to the underlying data, I can remain transparent in our reporting.</li> </ul> </div>
+
+# Conclusion
+My analysis revealed the strong link between GDP and diagnosis rates proves that wealth acts as a "lens", in high-income countries, the infrastructure and public awareness exist to identify these traits; however, in lower-income regions, they often remain unseen in official data. Yet, our Interaction Framework proved that wealth is not the only variable. The "American ADHD Phenomenon" and the "European Autism Focus" highlight that shared institutional frameworks and regional cultural policies are just as influential as a country's GDP.
+
+The study also highlights a difference in how these two conditions behave globally:
+
+<div class="alert alert-warning"><ul> <li><strong>ADHD (Consistent):</strong> My analysis found that ADHD prevalence is relatively consistent across countries, showing a more standardized trend. This suggests a more unified global understanding of what ADHD looks like and a more consistent way of reporting it.
+
+</li> <li><strong>Autism (Variable):</strong> Autism, however, showed a "platykurtic" distribution, meaning the data is much more spread out. This tells us that Autism reporting is far more sensitive to local factors, some cultures identify it frequently, while others are barely reporting it at all.</li> </ul> </div>
+
+Ultimately, these results serve as a vital reminder that we are mapping reported diagnoses, not underlying biological incidence.
+
+***
+
+# Chapter of Choice: Advanced Analytical Framework 
+Adhering to the assignment’s suggestion that I venture into regions beyond the main course curriculum, I broadened my project horizons onto three separate advanced planes: <strong>Shiny Web Applications, Functional Programming (Loops/Functions)</strong>, and <strong>Advanced Statistical Modeling</strong>. 
+
+<strong>Motivation:Why All Three?</strong>
+
+The reason behind my choice to use this triple of sophisticated methods is that I wanted to model a whole, very complex data science pipeline. I had hoped to push ourselves beyond just dissecting data and, instead,
+
+<div> <ul> <li>1. Automate tasks with your own functions or use generic ones. 
+</li> <li>2. Productize the results with an interactive Shiny dashboard. 
+</li> <li>3. Identify the intricate structural ties that can not be detected by simple statistics.</ul> </div> 
+
+It was this whole-ecosystem approach that enabled me to develop a more nuanced understanding of the RStudio ecosystem, and see how a constellation of different R packages can come together to form an integrated data product.
+
+<strong>Choice:</strong> Shiny App & Coding Yes, I definitely think the "Shiny" app, and coding magic is well worth extra credit; but as a priority to pick ONE for Extra Credit, I am suggesting <em>Advanced Statistical Modeling and Log Transformation</em>.
+
+<strong>The Data-Driven Justification (The "0.023" Paradox)</strong>  
+The choice of this measure was not casual and it in fact resulted from an important issue I found during the data preparation process. I found a methodological "wall," however, as explained below and in the "Preliminary Statistical Check" (Section 3.1): 
+
+The raw Pearson correlation coefficient between GDP and Prevalence was <em>nonsignificant at 0.023</em>, <strong>which represents an almost null linear association</strong>. 
+
+A typical analysis would have ended here, with the headline <em>“economy has no impact on the condition”</em> But I both knew this score didn’t reflect reality. It was a direct consequence of mismatch in the distributions of the data: The population decries, because it grows exponentially while many disorders are linear.
+
+As a result, I was compelled to look beyond mere plotting tasks and take recourse in complex statistical algorithms. To address this structural misalignment, I fit <strong>Logarithmic Transformations (Log-GDP)</strong> and <strong>Interaction Models</strong>. Importantly, this transformation had brought out the characteristic of a <em>"Visibility Gap"</em> and demonstrated that it was not so much an advanced modeling preference as an obligatory tool to pinpoint the truth in this particular dataset.
+
+## Statistical Modeling
+I know what the visuals look like when you plot economic prosperity versus neurodevelopmental condition prevalence, I will measure them using the stat models. If I consider the mathematical function, the problem is to find the best function which explains the data. 
+
+I can then compare how well the five different models all perform using the Akaike Information Criterion (AIC) The lower the values of AIC, the better, AIC is an indicator of how well the model balances precision and complexity.
+
+### Testing the simplest of all hypotheses: Simple vs. Log-Linear Models.
+<strong>Simple Linear:</strong> Based on the simple linear model that as GDP gets one dollar higher, the prevalence of neurodevelopmental conditions goes up by a fixed amount of condition prevalence.
+
+<strong>Log-Linear Model Assumption:</strong> Prevalence is a function of the order of magnitude of income (so doubling income has a constant effect) — which is the default assumption used in econometric studies 
+
+```{r modeling_basic, echo=TRUE}
+# --- MODEL 1: SIMPLE LINEAR MODEL ---
+# Hypothesis: As GDP increases, disease prevalence increases linearly.
+model_linear <- lm(Prevalence ~ GDP, data = analysis_table)
+
+tidy(model_linear) %>%
+  kable(
+    caption = "Table 1: Does the prevalence of neurodevelopmental condition increase linearly as national wealth grows?",
+    digits = 3,
+    col.names = c("Term", "Estimate", "Std. Error", "Statistic", "P-Value")
+  )
+
+
+# --- MODEL 2: LOG-LINEAR MODEL ---
+# Hypothesis: Disease changes as income increases exponentially (logarithmically).
+# This is usually more robust for economic data (diminishing returns).
+model_log <- lm(Prevalence ~ log(GDP), data = analysis_table)
+
+tidy(model_log) %>%
+  kable(
+    caption = "Table 2: Is the wealth diagnosis relationship better explained by orders of magnitude (Log,GDP)",
+    digits = 3,
+    col.names = c("Term", "Estimate", "Std. Error", "Statistic", "P-Value")
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+# --- AIC COMPARISON ---
+# The LOWER the AIC value, the BETTER the model fit.
+aic_linear <- AIC(model_linear)
+aic_log <- AIC(model_log)
+
+print(paste("Linear Model AIC:", round(aic_linear, 2)))
+print(paste("Log Model AIC:   ", round(aic_log, 2)))
+
+if(aic_log < aic_linear) {
+  print("RESULT: The Logarithmic model explains the data better (Lower AIC).")
+} else {
+  print("RESULT: The Linear model appears better.")
+}
+```
+<div class="alert alert-warning"> <strong> Statistical Interpretation of Baseline Models:</strong>
+
+Upon reviewing the summaries of both baseline models, we observe a critical finding: 
+<ul> <li><strong>Insignificance of Income Alone:</strong> In the Log-Linear model, the p-value for <code>log(GDP)</code> is <strong>0.719</strong> (as seen in the output). This is well above the standard 0.05 threshold, meaning the relationship is not statistically significant when pooling all disorders together.</li> <li><strong>The "Cancellation Effect":</strong> This insignificance is likely occurring because the trends for ADHD and Autism might be moving in <strong>opposite directions</strong> or at different rates, canceling each other out when analyzed as a single group.</li> </ul> <strong>Conclusion:</strong> This confirms that a simple "Income -> Disorder" model is insufficient. I must include the disorder type in our equation, leading us to the <strong>Interaction Models</strong> in the next section. </div>
+
+### Advanced Modeling: Categorical and Interaction Effects
+From this baseline analysis, I added two additional levels of complexity to further investigate factors driving prevalence: <strong>Geography (Categorical)</strong> and <strong>Disorder Specificity (Interaction)</strong>.
+
+
+#### The Continent Effect (Categorical Model)
+I examined if the continent a country is affiliated with has an impact on PRC independent of its income. This serves to address the question: <em>“If income is the same, does living in Europe vs. Asia matter with respect to risk?”</em>
+
+```{r modeling_continent, echo=TRUE}
+# --- MODEL 3: CONTINENT EFFECT (Categorical) ---
+# Question: "Even if income is the same, does the continent lived in affect the neurodevelopmental condition rate?"
+
+model_continent <- lm(Prevalence ~ log(GDP) + Continent, data = analysis_table)
+
+tidy(model_continent) %>%
+  kable(
+    caption = "Table 3: Even if income is the same, does the continent lived in affect the neurodevelopmental condition rate?",
+    digits = 3,
+    col.names = c("Term", "Estimate", "Std. Error", "Statistic", "P-Value")
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+<div class="alert alert-warning"> In the summary above I see the coefficients on Continent[...]. Where asterisks (***) are shown beside a continent (e.g., ContinentEurope) this means that living on the corresponding region makes individuals more likely to have the neurodevelopmental condition, after adjustment for GDP.</div>
+
+#### The Interaction Model (Continuous x Categorical)
+I then operated on my core structual query <em>"Do Autism and ADHD differ in effect of income on disorder?"</em> I created an Interaction Model to try this out. This is in contrast to the slope of the GDP regression line for neurodevelopmental condition type, which allows for variation.
+
+```{r model_interaction, echo=TRUE}
+# --- MODEL 4: INTERACTION MODEL ---
+model_interaction <- lm(Prevalence ~ log(GDP) * Disorder, data = analysis_table)
+
+tidy(model_interaction) %>%
+  kable(
+    caption = "Table 4: Does the impact of wealth differ significantly between Autism and ADHD?",
+    digits = 3,
+    col.names = c("Term", "Estimate", "Std. Error", "Statistic", "P-Value")
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+```
+<div class="alert alert-warning"> <strong>Statistical Interpretation:</strong> I focus on the interaction term: <em>log(GDP):DisorderAutism</em>.
+<ul> <li><strong>Coefficient:</strong> This tells you how much the slope changes for Autism versus ADHD.
+</li> <li><strong>Significance:</strong> <em>p-value < 0.05</em> (*or. in the output); but scientifically speaking, we can conclude that effects of increasing income are different for Autism and ADHD.</li> </ul> </div>
+
+##### Visualizing the Interaction
+To visualize this complex relationship, I plotted the regression lines for each neurodevelopmental condition separately:
+
+```{r plot_interaction, fig.cap="Figure 9: Interaction Model - Different Responses of Disorders to Income", fig.width=10, fig.height=5, out.width="100%", fig.align="center"}
+# INTERACTION PLOT - Visualizing the "Continuous - Categorical Interaction"
+ggplot(analysis_table, aes(x = GDP, y = Prevalence, color = Disorder)) +
+  geom_point(alpha = 0.5) +
+  
+  # Linear lines (Linear Fit) showing the trend for each group
+  geom_smooth(method = "lm", se = TRUE) + 
+  
+  scale_x_log10(labels = scales::comma) +
+  
+  # Splitting into panels to compare slopes side-by-side
+  facet_wrap(~Disorder, scales = "free_y") +
+  
+  labs(
+    title = "", # Title handled by fig.cap
+    subtitle = "The difference in slopes illustrates why separate models are needed",
+    x = "GDP Per Capita (Logarithmic)",
+    y = "Prevalence Rate"
+  ) +
+  
+  theme_bw() +
+  
+  # Theme adjustments for professional look
+  theme(
+    legend.position = "none",
+    strip.text = element_text(face = "bold", size = 11)
+  ) +
+  
+  scale_color_viridis_d(option = "plasma")
+```
+
+<div class="alert alert-warning"> <strong>Interpretation of Figure 9:</strong> This plot clearly visualizes the interaction effect:
+<ul> <li><strong>ADHD (Figure Left Panel):</strong> The line is almost flat or even negative. This suggests that prevalence of ADHD diagnosis is largely unrelated to the nation’s wealth. It is a <em>"universal"</em> phenomenon that may not depend much on economic resources for its identification.
+</li> <li><strong>Autism (Right Graph):</strong> The Autism trend line, in stark contrast, has a positive slope. Reported cases increase with GDP. This graphical discrepancy supports that the <em>"Visibility Gap"</em> is primarily an Autism-specific phenomenon and ideologically stems from Autism being more expensive, complex to diagnose relative to ADHD.</li> </ul> </div>
+
+### Model Selection: The AIC Comparison
+I have created four distinct statistical models, from simple linear regressions to elaborate interaction schemes. But which one describes reality most accurately? I addressed this using an objective, the Akaike Information Criterion (AIC). 
+
+<strong>The Logic:</strong> AIC measure the quality of estimators in relation tocompetitors. 
+<strong>The Rule:</strong> Smaller AIC score is a better fit to the model. It indicates that the model is a good fit to or does not have too much irrelevant information in relation to the data (avoiding overfitting).
+
+```{r model_comparison, echo=TRUE}
+# --- AIC COMPARISON ---
+# Which Model is Best?
+aic_table <- data.frame(
+  Model = c("Simple Linear", "Logarithmic", "Continent Added", "Interactive"),
+  AIC_Score = c(AIC(model_linear), AIC(model_log), AIC(model_continent), AIC(model_interaction))
+)
+
+# Find the one with the lowest AIC score and sort them
+aic_table <- aic_table %>% arrange(AIC_Score)
+
+# We use kable to display a professional table in HTML
+knitr::kable(aic_table, caption = "Table 3: Final Model Selection Results") %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover"), full_width = F, position = "center")
+```
+<div class="alert alert-warning"> <strong> Final Verdict: The Interaction Model Wins</strong>
+The comparison table gives a simple answer:
+<ul> <li><strong>Winner — Interaction Model (6304.38):</strong> I can say that the Interaction Model is the best statically fit at a score of 6304.38. This confirms our initial observation that in order to model prevalence accurately, I need to model the differential response of different disorders to economic factors.
+</li> <li><strong>The Effect of Geography: The model (Score: 6333)</strong> with the added information of whether people are from the same continent as the same citizens performed significantly better than baseline models, which shows us that location matters.
+</li> <li><strong>Baseline Failure:</strong> The Simple Linear and Logarithmic models <strong>(Scores ~6403)</strong> had a very bad performance. Again, this highlights that gene category analyses of ‘neurological disorders’ as one lump is a poor trajectory.</li> </ul> </div>
+
+### Non-Linearity Check: The Quadratic Model
+Lastly I tried a Quadratic Model, simply to make sure I was not leaving out a more complicated pattern. 
+
+<strong>The Hypothesis:Does the relationship <em>"U-shaped"</em></strong> (e.g., Does neurodevelopmental conditions prevalence drop for middle-income countries but rise again for rich countries?)
+
+<strong>The Method:</strong> I added a squared term <strong>`I(GDP^2)`</strong> to the regression equation.
+
+```{r modeling_quadratic, echo=TRUE}
+# --- MODEL 5: QUADRATIC MODEL ---
+
+model_quadratic <- lm(Prevalence ~ log(GDP) + I(log(GDP)^2), data = analysis_table)
+
+tidy(model_quadratic) %>%
+  kable(
+    caption = "Table 5: Is there a 'saturation point' where more wealth stops increasing diagnosis rates?",
+    digits = 3,
+    col.names = c("Term", "Estimate", "Std. Error", "Statistic", "P-Value")
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+print(paste("Quadratic Model AIC:", round(AIC(model_quadratic), 2)))
+```
+
+#### Visualizing Non-Linearity (Quadratic Check)
+The Quadratic Model was statistically eliminated in the AIC comparison, but it is useful to visualize the reason I tested it. The below plot runs a polynomial regression (y ~ x + x^2) on the data in order to check for "U-shaped" patterns.
+
+```{r plot_quadratic, fig.cap="Figure 10: Quadratic Model Fit (Testing for U-Shape)", fig.width=10, fig.height=5, out.width="100%", fig.align="center"}
+# PLOT: QUADRATIC CURVE (Visualizing the U-shape hypothesis)
+ggplot(analysis_table, aes(x = GDP, y = Prevalence, color = Disorder, fill = Disorder)) +
+  geom_point(alpha = 0.4) + 
+  
+  # Separate curved line for each disease (Quadratic Fit)
+  geom_smooth(method = "lm", formula = y ~ x + I(x^2), se = TRUE, alpha = 0.2) +
+  
+  scale_x_log10(labels = scales::comma) +
+  
+  # Split panels
+  facet_wrap(~Disorder, scales = "free_y") + 
+  
+  labs(
+    title = "", # Title handled by fig.cap
+    subtitle = "Is there a significant curvature (U-turn) in the data?",
+    x = "GDP Per Capita (Logarithmic)",
+    y = "Neurodevelopmental Conditions Prevalence"
+  ) +
+  
+  theme_minimal() +
+  
+  # Styling
+  theme(
+    legend.position = "none",
+    strip.text = element_text(face = "bold", size = 11)
+  ) +
+  
+  scale_color_viridis_d(option = "turbo") +
+  scale_fill_viridis_d(option = "turbo")
+```
+
+<div class="alert alert-warning"> <strong>Interpretation of Figure 10:</strong>
+<ul> <li><strong>Visual Inspection:</strong> The graph appears to show a banana-shape for Autism (Right Panel) in that it suggests a "dip" in prevalence for middle-income countries before rising again.
+</li> <li><strong>Statistical Reality:</strong> As can be seen in the AIC table presented earlier, however, this curvature does not provide sufficient additional predictive power for the increased complexity. The global data are still best explained via the simpler Interaction Model.
+</li> <li><strong>Conclusion:</strong> Thus, I do not support the strong U-shape hypothesis. The main mechanism is income-related linear "diagnosis visibility," not structural nonlinear effect.</li> </ul> </div>
+
+### The "Geography of Diagnosis": Continent x Disorder Interaction
+Finally, I investigate the possibility of regional dominance: Is one condition significantly more prevalent in a specific part of the world? I want to see if the global data reveals a 'diagnostic divide', where one continent might be seeing a surge in Autism while another is characterized by a rise in ADHD.
+
+To test this, I built a <strong>Categorical-by-Categorical Interaction Model</strong>.
+
+```{r modeling_cat_cat, echo=TRUE}
+# --- MODEL 6: CONTINENT x DISORDER INTERACTION ---
+model_cat_cat <- lm(Prevalence ~ Continent * Disorder, data = analysis_table)
+
+tidy(model_cat_cat) %>%
+  kable(caption = "Table 6: Are specific continents statistically biased toward one diagnosis over another?", 
+        digits = 3,
+        col.names = c("Term", "Estimate", "Std. Error", "Statistic", "P-Value")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+
+<div class="alert alert-warning"> <strong>Statistical Interpretation of Geography:</strong>
+The model summary highlights clear geopolitical patterns:
+<ul> <li><strong>The American ADHD Miracle: continentAmericas +547.39 (***).</strong> Which means that simply by being in the Americas, the baseline prevalence for ADHD jumps substantially compared to Africa (baseline). This validates statistically the so-called <em>“ADHD Boom”</em> in the Western Hemisphere.
+</li> <li><strong>European Autism Focus:</strong> The interaction term ContinentEurope: DisorderAutism is positive and significant <strong>(+423.11 ***)</strong>. This means that ADHD diagnosis is less common in Europe than in America, but Europe has a much greater tendency to diagnose Autism, when compared with the trend.</li> </ul> </div>
+
+
+#### Visualizing Continent x Disorder Interaction
+I have plotted the distributions side-by-side to give a clear visualisation of this complex interaction. This chart clearly shows the ADHD anomaly in the Americas.
+
+```{r plot_interaction_cat, fig.cap="Figure 11: Continent and Neurodevelopmental Condition Interaction Analysis", fig.width=10, fig.height=6, out.width="100%", fig.align="center"}
+# VISUALIZATION: Categorical Interaction (Box Plot)
+ggplot(analysis_table, aes(x = Continent, y = Prevalence, fill = Disorder)) +
+  geom_boxplot(alpha = 0.8, outlier.shape = 21, outlier.fill = "white") + 
+  
+  labs(
+    title = "", 
+    subtitle = "Visualizing the 'ADHD Boom' in Americas vs. other regions",
+    x = "Continent",
+    y = "Prevalence Rate"
+  ) +
+  
+  theme_minimal() +
+  
+  theme(
+    legend.position = "top",
+    strip.text = element_text(face = "bold", size = 11)
+  ) +
+  
+  scale_fill_viridis_d(option = "plasma")
+```
+
+<div class="alert alert-warning"> <strong>Interpretation of Figure 11:</strong>
+<ul> <li><strong>Americas, Purple Giant:</strong> ADHD (purple) box plot for the Americas tower over all other regions. This visual distinction supports the statistically significant coefficient (+547) we uncovered model.
+</li> <li><strong>ADHD Dominates the Americas but Not Europe:</strong> The Americas are dominated by ADHD, but Europe presents a more balanced profile with Autism rates (yellow box) relatively higher than its own ADHD baseline.
+</li> <li><strong>Globally:</strong> For nearly all over continents (Africa, Asia), the difference between ADHD and Autism is about constant, meaning that the distribution in the Western hemisphere is a significant outlier.</li> </ul> </div>
+
+
+# Use of Generative AI and Reflection
+This project was developed with the support of Generative AI tools (Google Gemini) in strict compliance with course guidelines pertaining to ethical use of A.I. I used these tools not to avoid the learning experience, but to demonstrate a typical modern data science workflow where AI collaborates as a "co-pilot" for code efficiency and validation of ideas. 
+
+Here, I detail how it was used, how I verified that its implementations were correct and limitations I faced.
+
+## Areas of Application
+
+### Code Debugging and Syntax Fixing
+My main use of the AI was to address RMarkdown compilation errors. For instance, while building the “Interactive Geospatial Visualization” (Chapter of Choice), I kept running into this problem where the Leaflet map would not show up in the final HTML file. The AI diagnosed the dust up between static and interactive widgets, offering me the always_allow_html: true YML parameter. It also aided in debugging ggplot2 layers where we were getting "object not found" errors due to mismatching variable names.
+
+### Statistical Conceptualization and Model Selection
+The AI allowed me to get into the details of the statistical models that were needed to be able to complete the assignment. 
+
+<strong>Scenario:</strong> When I did a correlation investigation between GDP and Prevalence, I got a number very close to 0 (0.023). I asked the AI what that could mean theoretically. 
+
+<strong>Result:</strong> AI recommended that I check for non-linear relationships and therefore I decided on deploying the <em>Log–Linear</em> and <em>Quadratic Models</em>. This provided me a way to be scientific about interpreting the <em>Akaike Information Criterion (AIC)</em> scores and defend my reasoning for why the Interaction Model dominated the Quadratic Model, ensuring my conclusions were valid in the context of mathematics.
+
+### Enhancing Data Visualization Aesthetics
+Although I constructed most of the core logic of the plots (scatter plots, box plots) myself, I used AI to beautify them for a nice professional <em>"client-ready"</em> look. This included the implementation of:
+
+Sensible colors for non-colorblind readers with color palettes (such as the viridis and magma scales). 
+
+Ugly formatting in the <em>theme()</em> calls to shift legend placement without accompanying confusing gridlines.
+
+Annotation layers to focus attention on individual outliers, like the <em>“ADHD anomaly”</em> in the Americas.
+
+## Verification and Limitations (What did not work?)
+### The "Hallucination" Problem
+I noticed that the AI sometimes came up with code for R packages which were obsolete or not loaded in my environment.
+
+<strong>Example:</strong> At one point, the AI proposed a particular function for how the AIC Table should be displayed that caused kniting to fail.
+
+<strong>Correction:</strong> I had to roll back to regular <em>knitr::kable</em>. I learnt never to copy and paste code like that without testing each block interactively in the R Console first.
+
+### Verifying Statistical Accuracy
+Statistical interpretation of ontology was strictly <em>"Human-in-the-Loop"</em>. I cross-checked when the AI offered the <em>Interaction Model</em> coefficients in a narrative (e.g., for Autism it claimed a positive relationship), by looking at the output of the summary(model_interaction) in RStudio and verifying whether the p-values and coefficients matched the generative narrative of AI. The console only had hard data, so I only included interpretations that were supported.
+
+## Conclusion on Learning
+The introduction of Generative AI very much shortened my learning curve, as I saved a great deal of time checking for trivial syntax errors (e.g. forgotten comma or parentheses). This freed up time for me to concentrate on interpreting the data and telling the story of the report. It was less of an <em>“answer generator”</em> and more of an on-demand private tutor that explained why this line of code mattered and syntax errors.
+
+# References & Reproducibility
+## Data Sources
+The analysis is based on data aggregated from the following open-access repositories:
+
+<strong>World Bank Open Data:</strong> Used for macroeconomic indicators (GDP per capita, Income Groups).  
+<strong>URL:</strong> [https://data.worldbank.org/](https://data.worldbank.org/)
+
+<strong>Global Health Data Exchange (GHDx):</strong> Used for neurological disorder prevalence rates (ADHD, Autism).  
+<strong>Source:</strong> Institute for Health Metrics and Evaluation (IHME).  
+<strong>URL:</strong> [http://ghdx.healthdata.org/](http://ghdx.healthdata.org/)
+
+<strong>Natural Earth Data:</strong> Used for geospatial vector boundaries via the <em>'rnaturalearth'</em> package.
+
+## R Packages and Software
+This report was generated using <em>RStudio</em> and the <em>R Markdown</em> framework. The following key libraries were instrumental in the analysis:
+
+<strong>Data Manipulation:</strong> <em>'tidyverse'</em> (dplyr, tidyr, readr)
+
+<strong>Visualization:</strong> <em>'ggplot2', 'viridis', 'scales'</em>
+
+<strong>Geospatial Analysis:</strong> <em>'leaflet', 'sf', 'rnaturalearth'</em>
+
+<strong>Reporting:</strong> <em>'knitr', 'kableExtra'</em>
+
+## Course Materials
+<strong>Foundations of Data Science (2026)</strong> - Course Slides (Part I: Statistical Modeling, Part II: Visualization).
+
+## Session Information
+To ensure the reproducibility of this analysis, the technical specifications of the R environment used to generate this report are listed below.
+
+```{r session_info, echo=FALSE}
+
+sessionInfo()
+```
+
+
+
+
+
+
+
+
+
+
+
