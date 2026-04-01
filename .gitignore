@@ -47,3 +47,12 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# Mac OS hidden files
+.DS_Store
+
+# RStudio project file
+*.Rproj
+
+# HTML widgets and Leaflet map cache folders
+*_files/
