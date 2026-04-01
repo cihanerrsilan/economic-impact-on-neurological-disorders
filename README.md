@@ -48,7 +48,7 @@ Unlike simple correlation checks, this project utilized a structured econometric
 
 ## 🌐 Live Interactive Report
 You can read the full interactive report, complete with hoverable scatter plots and navigable maps, directly via GitHub Pages:  
-👉 **[BURAYA CANLI GITHUB PAGES LİNKİNİ YAPIŞTIR - Örn: https://silan.github.io/proje-adi/]**
+👉 ****
 
 ---
 
