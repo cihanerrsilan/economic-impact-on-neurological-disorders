@@ -9,6 +9,11 @@ This repository contains a comprehensive data science project analyzing the rela
 ## 📊 Project Overview
 The core objective of this analysis is to investigate whether higher national income leads to increased diagnosis rates for different neurological conditions. 
 
+### 🔑 Key Findings
+* **The Wealth-Diagnosis Correlation:** Autism prevalence is heavily correlated with economic capacity. The data shows a distinct upward trend as GDP increases, strongly suggesting that richer nations have the resources (screening tools, specialists) required for widespread diagnosis.
+* **The ADHD Anomaly:** Unlike Autism, ADHD shows a global, somewhat economically independent trend, but with a massive, localized diagnostic boom in the Americas.
+* **Model Superiority:** Through rigorous Akaike Information Criterion (AIC) testing, the *Interaction Model* (combining GDP, Disease Type, and their interaction) drastically outperformed standard Linear and Quadratic models, proving that the economic impact behaves fundamentally differently depending on the specific disorder.
+  
 Key findings from our statistical modeling (AIC comparisons) and geospatial analysis indicate a significant "Visibility Gap":
 * **ADHD** shows a global, somewhat economically independent trend, with a massive diagnostic boom in the Americas.
 * **Autism** prevalence is heavily correlated with economic capacity, showing a distinct upward trend as GDP increases, likely due to the higher resources required for diagnosis.
