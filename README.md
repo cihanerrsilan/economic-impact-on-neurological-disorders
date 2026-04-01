@@ -3,6 +3,7 @@
 This repository contains a comprehensive data science project analyzing the relationship between a country's economic power (GDP per capita) and the diagnosed prevalence of neurological disorders, specifically ADHD and Autism Spectrum Disorders. 
 
 **Authors:** Silan Cihaner 
+
 **Date:** February 2026  
 
 ## 📊 Project Overview
